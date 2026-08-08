@@ -109,6 +109,11 @@
         <input id="myName" placeholder="deixa em branco pra virar P1, P2..." maxlength="20">
       </div>
 
+      <div class="field">
+        <label for="roomPassword">senha da sala</label>
+        <input id="roomPassword" type="password" placeholder="combinada com a galera" maxlength="60">
+      </div>
+
       <button id="enterBtn" style="width:100%">entrar na sala</button>
       <div id="occupancy">verificando ocupação...</div>
       <div id="lobbyMsg"></div>
@@ -155,6 +160,7 @@ const messagesRef = db.ref('room/messages');
 
 const clientId = 'u-' + Math.random().toString(36).slice(2, 10);
 let myName = '';
+const authedRef = db.ref('room/authed/' + clientId);
 
 const lobby = document.getElementById('lobby');
 const roomEl = document.getElementById('room');
@@ -176,15 +182,26 @@ presenceRef.on('value', (snap) => {
 
 enterBtn.onclick = async () => {
   const typedName = document.getElementById('myName').value.trim();
+  const password = document.getElementById('roomPassword').value;
+  if (!password) {
+    showLobbyMsg('digita a senha da sala.', 'err');
+    return;
+  }
   enterBtn.disabled = true;
   showLobbyMsg('entrando...', '');
 
   try {
+    // tenta se autenticar com a senha; se a regra do Firebase rejeitar,
+    // cai no catch abaixo como "senha incorreta"
+    await authedRef.set(password);
+    authedRef.onDisconnect().remove();
+
     const snap = await presenceRef.get();
     const count = snap.numChildren();
 
     if (count >= MAX_OCCUPANTS) {
       showLobbyMsg('sala cheia (' + MAX_OCCUPANTS + '/' + MAX_OCCUPANTS + '). tenta de novo daqui a pouco.', 'err');
+      authedRef.remove();
       enterBtn.disabled = false;
       return;
     }
@@ -212,7 +229,11 @@ enterBtn.onclick = async () => {
     enterRoom();
   } catch (e) {
     console.error(e);
-    showLobbyMsg('erro ao conectar: ' + e.message + ' (confere se colou a config do Firebase certinha)', 'err');
+    if (e.code === 'PERMISSION_DENIED') {
+      showLobbyMsg('senha incorreta.', 'err');
+    } else {
+      showLobbyMsg('erro ao conectar: ' + e.message, 'err');
+    }
     enterBtn.disabled = false;
   }
 };
@@ -279,3 +300,4 @@ window.addEventListener('beforeunload', () => {
 </script>
 </body>
 </html>
+
