@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>zapzap:// sala</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+<style>
+  :root {
+    --bg: #0a0d0a; --bg-panel: #10140f; --bg-input: #0d110c;
+    --amber: #ffb000; --amber-dim: #a86f00; --amber-faint: #4a3400;
+    --green-ok: #5fd75f; --red-err: #ff5f5f; --border: #2a2f24; --text: #d8d3b8;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%; background: var(--bg); color: var(--text);
+    font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+  }
+  ::selection { background: var(--amber); color: #000; }
+  ::-webkit-scrollbar { width: 10px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--amber-faint); border: 2px solid var(--bg); }
+
+  button {
+    font-family: inherit; cursor: pointer; border: 1px solid var(--amber-dim);
+    background: transparent; color: var(--amber); padding: 10px 16px;
+    font-size: 13px; letter-spacing: 0.05em; transition: background 0.15s, color 0.15s;
+  }
+  button:hover { background: var(--amber); color: #000; }
+  button.ghost { border-color: var(--border); color: var(--amber-dim); }
+  button.ghost:hover { background: var(--border); color: var(--text); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button:disabled:hover { background: transparent; color: var(--amber); }
+
+  input {
+    background: var(--bg-input); border: 1px solid var(--border); color: var(--amber);
+    font-family: inherit; font-size: 14px; padding: 10px 12px; outline: none;
+  }
+  input:focus { border-color: var(--amber-dim); }
+
+  #lobby {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .terminal-box {
+    width: 100%; max-width: 440px; border: 1px solid var(--border); background: var(--bg-panel);
+    box-shadow: 0 0 0 1px #000, 0 0 40px rgba(255,176,0,0.04);
+  }
+  .terminal-titlebar {
+    display: flex; align-items: center; justify-content: space-between; padding: 8px 14px;
+    border-bottom: 1px solid var(--border); font-size: 12px; color: var(--amber-dim); letter-spacing: 0.06em;
+  }
+  .terminal-titlebar .dots span {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--amber-faint); margin-right: 5px;
+  }
+  .terminal-body { padding: 24px; }
+  .terminal-body h1 { font-size: 18px; margin: 0 0 4px; color: var(--amber); }
+  .terminal-body .sub { font-size: 12px; color: var(--amber-dim); margin-bottom: 22px; line-height: 1.6; }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 11px; color: var(--amber-dim); margin-bottom: 6px; letter-spacing: 0.08em; }
+  .field label::before { content: '> '; }
+  .field input { width: 100%; }
+  #lobbyMsg { font-size: 12px; margin-top: 14px; min-height: 32px; line-height: 1.5; }
+  #lobbyMsg.err { color: var(--red-err); }
+  #lobbyMsg.ok { color: var(--green-ok); }
+  #occupancy { font-size: 11px; color: #5a5540; margin-top: 4px; }
+
+  #room { display: none; min-height: 100vh; flex-direction: column; }
+  .room-header {
+    padding: 12px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--amber-dim);
+  }
+  .room-header .who { color: var(--amber); }
+  .status-dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; background: var(--green-ok);
+    box-shadow: 0 0 6px var(--green-ok);
+  }
+
+  .chat-area { flex: 1; display: flex; flex-direction: column; }
+  .messages { flex: 1; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 3px; }
+  .msg-line { font-size: 13.5px; line-height: 1.75; white-space: pre-wrap; word-break: break-word; }
+  .msg-line .ts { color: #55503a; margin-right: 8px; }
+  .msg-line .who { font-weight: 700; margin-right: 6px; }
+  .msg-line.own .who { color: var(--green-ok); }
+  .msg-line.other .who { color: var(--amber); }
+  .msg-line.sys { color: #5a5540; font-style: italic; }
+  .composer { border-top: 1px solid var(--border); padding: 14px 20px; display: flex; gap: 10px; }
+  .composer input { flex: 1; }
+  .empty-state { margin: auto; text-align: center; color: #5a5540; font-size: 13px; max-width: 320px; }
+</style>
+</head>
+<body>
+
+<div id="lobby">
+  <div class="terminal-box">
+    <div class="terminal-titlebar">
+      <span>zapzap://sala — até 4 pessoas</span>
+      <span class="dots"><span></span><span></span><span></span></span>
+    </div>
+    <div class="terminal-body">
+      <h1>SALA ÚNICA</h1>
+      <div class="sub">uma sala só, até 4 pessoas por vez. quando todo mundo sai, a próxima pessoa entra numa sala zerada.</div>
+
+      <div class="field">
+        <label for="myName">seu nome (opcional)</label>
+        <input id="myName" placeholder="deixa em branco pra virar P1, P2..." maxlength="20">
+      </div>
+
+      <button id="enterBtn" style="width:100%">entrar na sala</button>
+      <div id="occupancy">verificando ocupação...</div>
+      <div id="lobbyMsg"></div>
+    </div>
+  </div>
+</div>
+
+<div id="room">
+  <div class="room-header">
+    <div><span class="status-dot"></span>conectado como <span class="who" id="meLabel"></span></div>
+    <div id="occupancyRoom">1/4 na sala</div>
+  </div>
+  <div class="chat-area">
+    <div class="messages" id="messages"></div>
+    <div class="composer">
+      <input id="messageInput" placeholder="digite e pressione enter..." autocomplete="off" maxlength="500">
+      <button id="sendBtn">enviar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ======================================================================
+// COLE AQUI a configuração do SEU projeto Firebase
+// (Console Firebase > Configurações do projeto > seus apps > SDK config)
+// ======================================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyCZGZM9obOUBiUsDPfrq-ttXs7ixjlDDtk",
+  authDomain: "call-cd7d9.firebaseapp.com",
+  databaseURL: "https://call-cd7d9-default-rtdb.firebaseio.com",
+  projectId: "call-cd7d9",
+  storageBucket: "call-cd7d9.firebasestorage.app",
+  messagingSenderId: "72985264211",
+  appId: "1:72985264211:web:a7a9bfac9251eff5f7c6a6"
+};
+// ======================================================================
+
+const MAX_OCCUPANTS = 4;
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const presenceRef = db.ref('room/presence');
+const messagesRef = db.ref('room/messages');
+
+const clientId = 'u-' + Math.random().toString(36).slice(2, 10);
+let myName = '';
+
+const lobby = document.getElementById('lobby');
+const roomEl = document.getElementById('room');
+const lobbyMsg = document.getElementById('lobbyMsg');
+const enterBtn = document.getElementById('enterBtn');
+
+function showLobbyMsg(text, kind) {
+  lobbyMsg.textContent = text;
+  lobbyMsg.className = kind || '';
+}
+
+// Mostra ocupação atual em tempo real, mesmo antes de entrar
+presenceRef.on('value', (snap) => {
+  const count = snap.numChildren();
+  document.getElementById('occupancy').textContent = count + '/' + MAX_OCCUPANTS + ' na sala agora';
+  const occRoomEl = document.getElementById('occupancyRoom');
+  if (occRoomEl) occRoomEl.textContent = count + '/' + MAX_OCCUPANTS + ' na sala';
+});
+
+enterBtn.onclick = async () => {
+  const typedName = document.getElementById('myName').value.trim();
+  enterBtn.disabled = true;
+  showLobbyMsg('entrando...', '');
+
+  try {
+    const snap = await presenceRef.get();
+    const count = snap.numChildren();
+
+    if (count >= MAX_OCCUPANTS) {
+      showLobbyMsg('sala cheia (' + MAX_OCCUPANTS + '/' + MAX_OCCUPANTS + '). tenta de novo daqui a pouco.', 'err');
+      enterBtn.disabled = false;
+      return;
+    }
+
+    // sala estava vazia -> zera o histórico antes de entrar
+    if (count === 0) {
+      await messagesRef.remove();
+    }
+
+    // nomes já em uso, pra evitar duplicata / pra gerar um P1-P4 automático
+    const existingNames = new Set();
+    snap.forEach((child) => existingNames.add(child.val().name));
+
+    myName = typedName || ('P' + (count + 1));
+    if (existingNames.has(myName)) {
+      let n = 2;
+      while (existingNames.has(myName + ' (' + n + ')')) n++;
+      myName = myName + ' (' + n + ')';
+    }
+
+    const myPresenceRef = presenceRef.child(clientId);
+    await myPresenceRef.set({ name: myName, ts: firebase.database.ServerValue.TIMESTAMP });
+    myPresenceRef.onDisconnect().remove();
+
+    enterRoom();
+  } catch (e) {
+    console.error(e);
+    showLobbyMsg('erro ao conectar: ' + e.message + ' (confere se colou a config do Firebase certinha)', 'err');
+    enterBtn.disabled = false;
+  }
+};
+
+function enterRoom() {
+  lobby.style.display = 'none';
+  roomEl.style.display = 'flex';
+  document.getElementById('meLabel').textContent = myName;
+
+  messagesRef.limitToLast(200).on('child_added', (snap) => {
+    appendMessage(snap.val());
+  });
+
+  addSystemMessage('você entrou na sala.');
+}
+
+function appendMessage(m) {
+  const messagesEl = document.getElementById('messages');
+  const empty = messagesEl.querySelector('.empty-state');
+  if (empty) empty.remove();
+  const div = document.createElement('div');
+  const own = m.uid === clientId;
+  div.className = 'msg-line ' + (own ? 'own' : 'other');
+  const time = new Date(m.ts || Date.now()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  div.innerHTML = `<span class="ts">[${time}]</span><span class="who">${escapeHtml(m.name)}:</span>${escapeHtml(m.text)}`;
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function addSystemMessage(text) {
+  const messagesEl = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'msg-line sys';
+  div.textContent = '· ' + text;
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function escapeHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str == null ? '' : String(str);
+  return d.innerHTML;
+}
+
+const messageInput = document.getElementById('messageInput');
+document.getElementById('sendBtn').onclick = sendMessage;
+messageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
+
+function sendMessage() {
+  const text = messageInput.value.trim();
+  if (!text) return;
+  messagesRef.push({
+    uid: clientId,
+    name: myName,
+    text: text,
+    ts: firebase.database.ServerValue.TIMESTAMP
+  });
+  messageInput.value = '';
+}
+
+window.addEventListener('beforeunload', () => {
+  presenceRef.child(clientId).remove();
+});
+</script>
+</body>
+</html>
